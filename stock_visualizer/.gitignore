@@ -26,5 +26,8 @@ Thumbs.db
 *.svg
 *.csv
 
+# yfinance cache files (auto-generated, safe to delete)
+symbols_valid_meta.csv
+
 # Jupyter
 .ipynb_checkpoints/

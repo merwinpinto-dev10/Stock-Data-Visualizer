@@ -1,29 +1,14 @@
 # ─────────────────────────────────────────────
 #  StockViz Pro — App Configuration
+#
+#  Colours are NO longer defined here.
+#  All colour tokens live in utils/theme.py
+#  and are accessed via ThemeManager.current()
 # ─────────────────────────────────────────────
 
-APP_TITLE = "StockViz Pro"
-DEFAULT_TICKER = "AAPL"
-REFRESH_INTERVAL_MS = 60_000  # 60 seconds
-
-# ── Color Palette ─────────────────────────────
-BG_COLOR     = "#0d0d1a"
-SIDEBAR_BG   = "#13132b"
-CARD_BG      = "#1a1a35"
-CHART_BG     = "#0d0d1a"
-ACCENT       = "#00d4aa"   # teal-green (bullish)
-ACCENT2      = "#e94560"   # red (bearish / danger)
-TEXT_COLOR   = "#e0e0f0"
-SUBTEXT_COLOR = "#6666aa"
-BORDER_COLOR = "#2a2a4a"
-
-# ── Chart indicator colours ───────────────────
-IND_COLORS = {
-    "SMA 20":          "#f7c59f",
-    "SMA 50":          "#efefd0",
-    "EMA 20":          "#ff6b6b",
-    "Bollinger Bands": "#a8dadc",
-}
+APP_TITLE           = "StockViz Pro"
+DEFAULT_TICKER      = "AAPL"
+REFRESH_INTERVAL_MS = 60_000   # ms between auto-refresh ticks
 
 # ── Timeframes ────────────────────────────────
 TIMEFRAMES = {

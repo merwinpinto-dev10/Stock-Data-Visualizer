@@ -1,25 +1,22 @@
-# ─────────────────────────────────────────────────────────────────────────────
-#  Data Fetch Layer
-#  Applies the SSL bypass + curl-disable fix known to work in this environment
-# ─────────────────────────────────────────────────────────────────────────────
 import ssl
 import os
 
-# Must happen before any network import
+# Must happen before any network import -> more stable python path
 ssl._create_default_https_context = ssl._create_unverified_context
-os.environ["YFINANCE_USE_CURL"] = "False"
+os.environ["YFINANCE_USE_CURL"] = "False" #compactibility issues 
 
+# Disable SSL verification & InsecureRequestWarning
 import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
-import yfinance as yf
+import yfinance as yf #fetch stock data 
 import pandas as pd
 
 
 def fetch_stock_data(ticker: str, period: str = "1mo", interval: str = "1d") -> pd.DataFrame:
     """Download OHLCV data and return a clean, flat DataFrame."""
     try:
-        tk = yf.Ticker(ticker.upper())
+        tk = yf.Ticker(ticker.upper()) # ticker object
         df = tk.history(period=period, interval=interval)
 
         if df is None or df.empty:
