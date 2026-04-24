@@ -51,7 +51,7 @@ def build_candle_figure(df: pd.DataFrame, indicators: list,
 
     addplots = []
 
-    # ── Price overlays (panel 0) ───────────────────────────────────────────────
+    # Price overlays (panel 0)
     if "SMA 20" in indicators:
         ap = _safe_addplot(compute_sma(df, 20),
                            color=c["SMA 20"], width=1.2, linestyle="--")
@@ -78,7 +78,7 @@ def build_candle_figure(df: pd.DataFrame, indicators: list,
             if ap:
                 addplots.append(ap)
 
-    # ── RSI panel (panel 2) ────────────────────────────────────────────────────
+    # RSI panel (panel 2)       
     rsi_panel = 2
     if show_rsi:
         rsi = compute_rsi(df)

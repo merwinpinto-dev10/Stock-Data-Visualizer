@@ -1,6 +1,18 @@
 """
 StockViz Pro — GUI v3 (Light/Dark theme support)
 Theme switching is powered by utils/theme.py (user-defined module).
+
+Dependencies
+------------
+tkinter + ttk        : GUI components (window, buttons, inputs)
+matplotlib (TkAgg)   : embed charts inside Tkinter
+FigureCanvasTkAgg    : display + interact with charts (zoom, pan)
++ Toolbar
+sys.path fix         : allows importing internal modules
+config.py            : app settings (timeframes)
+data layer           : fetch_stock_data, get_ticker_info
+visualization        : line chart + candle chart builders
+utils                : threading + formatting helpers
 """
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
@@ -8,42 +20,44 @@ import datetime
 import sys, os
 
 import matplotlib
-matplotlib.use("TkAgg")
+matplotlib.use("TkAgg")  # use TkAgg backend to embed matplotlib inside Tkinter
 from matplotlib.backends.backend_tkagg import FigureCanvasTkAgg, NavigationToolbar2Tk
 
+# sys.path fix: insert project root so internal modules can be imported
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# config.py: app-wide settings (timeframes, chart types, indicators)
 from config import (APP_TITLE, DEFAULT_TICKER, REFRESH_INTERVAL_MS,
                     TIMEFRAMES, CHART_TYPES, INDICATORS)
 from utils.theme import ThemeManager
-from data.fetch_data import fetch_stock_data, get_ticker_info
-from visualization.line_chart import build_line_figure
-from visualization.candle_chart import build_candle_figure
-from utils.helpers import run_in_thread, format_currency
+from data.fetch_data import fetch_stock_data, get_ticker_info  # data layer
+from visualization.line_chart import build_line_figure          # line chart builder
+from visualization.candle_chart import build_candle_figure      # candle chart builder
+from utils.helpers import run_in_thread, format_currency        # threading + formatting helpers
 from utils.watchlist import load_watchlist, wl_add, wl_remove
 
 
 class StockVizApp:
 
-    def __init__(self, root: tk.Tk):
+    def __init__(self, root: tk.Tk): # initialises app
         self.root = root
         self.root.title(APP_TITLE)
         self.root.geometry("1300x800")
         self.root.minsize(1000, 650)
 
-        # ── State ────────────────────────────────────────────────────────────
-        self.current_df      = None
-        self.current_fig     = None
-        self.current_ticker  = ""
-        self.canvas_widget   = None
-        self.auto_refresh_id = None
+        # State 
+        self.current_df      = None  # last fetched DataFrame
+        self.current_fig     = None  # last rendered matplotlib Figure
+        self.current_ticker  = ""    # last fetched ticker
+        self.canvas_widget   = None  # prevents duplicate fetch calls
+        self.auto_refresh_id = None  
         self.clock_after_id  = None
         self.is_loading      = False
         self._active_btn    = None   # currently highlighted preset/watchlist btn
-        self._watchlist     = load_watchlist()
+        self._watchlist     = load_watchlist()  # list of saved tickers
         self._wl_frame      = None   # container rebuilt on each add/remove
 
-        # ── Tkinter Variables ────────────────────────────────────────────────
+        # Tkinter Variables 
         self.ticker_var       = tk.StringVar(value=DEFAULT_TICKER)
         self.timeframe_var    = tk.StringVar(value="1 Month")
         self.chart_type_var   = tk.StringVar(value="Line")
@@ -59,7 +73,7 @@ class StockVizApp:
         # Timeframe change → full re-fetch (new data needed, not just re-render)
         self.timeframe_var.trace_add("write", lambda *_: self.fetch_data())
 
-        # ── Widget registry for theme switching ──────────────────────────────
+        # Widget registry for theme switching 
         # Each entry: (widget, {tkinter_option: theme_attribute_name})
         self._tw = []
 
@@ -71,23 +85,25 @@ class StockVizApp:
         self.root.protocol("WM_DELETE_WINDOW", self._on_close)
         self.root.after(700, self.fetch_data)
 
-    # ── Theme helpers ─────────────────────────────────────────────────────────
+    # ── Theme / Setup ─────────────────────────────────────────────────────────
 
     def _t(self):
-        """Shorthand: return current Theme object."""
+        """Returns current theme object (shorthand accessor for ThemeManager.current())."""
         return ThemeManager.current()
 
     def _reg(self, widget, **options):
         """
-        Register a widget for automatic re-theming.
-        options maps tkinter option → Theme attribute name.
+        Registers widget for automatic theme updates.
+
+        Maps tkinter option names to Theme attribute names so that
+        _apply_theme() can update every registered widget in one pass.
         Example:  self._reg(lbl, bg="card_bg", fg="text")
         """
         self._tw.append((widget, options))
         return widget
 
     def _apply_theme(self):
-        """Re-colour every registered widget from the current theme."""
+        """Applies current theme colors to all registered widgets."""
         t = self._t()
         # Update root background
         self.root.configure(bg=t.bg)
@@ -120,10 +136,12 @@ class StockVizApp:
             self._render_chart(self.current_df, self.current_ticker)
 
     def _toggle_theme(self):
+        """Switches between light and dark theme."""
         ThemeManager.toggle()
         self._apply_theme()
 
     def _setup_ttk_styles(self):
+        """Configures ttk widget styles (Combobox, Checkbutton, Radiobutton) based on theme."""
         t = self._t()
         s = ttk.Style()
         s.theme_use("clam")
@@ -142,9 +160,10 @@ class StockVizApp:
                   background=[("active", t.sidebar_bg)],
                   foreground=[("active", t.accent)])
 
-    # ── Window close ──────────────────────────────────────────────────────────
+    # ── Window Control ────────────────────────────────────────────────────────
 
     def _on_close(self):
+        """Safely stops clock and auto-refresh timers, then closes the app window."""
         if self.clock_after_id:
             self.root.after_cancel(self.clock_after_id)
         if self.auto_refresh_id:
@@ -154,6 +173,7 @@ class StockVizApp:
     # ── UI Construction ───────────────────────────────────────────────────────
 
     def _build_ui(self):
+        """Builds full UI layout: header, sidebar, main content area, and status bar."""
         t = self._t()
         self._build_header()
         body = self._reg(tk.Frame(self.root, bg=t.bg), bg="bg")
@@ -162,9 +182,8 @@ class StockVizApp:
         self._build_main(body)
         self._build_statusbar()
 
-    # ── Header ────────────────────────────────────────────────────────────────
-
     def _build_header(self):
+        """Creates the top header bar with app title, live clock, and theme toggle button."""
         t = self._t()
         hdr = self._reg(tk.Frame(self.root, bg=t.header_bg, height=62), bg="header_bg")
         hdr.pack(fill="x")
@@ -211,9 +230,8 @@ class StockVizApp:
         )
         self.header_price_lbl.pack(anchor="e")
 
-    # ── Sidebar ───────────────────────────────────────────────────────────────
-
     def _build_sidebar(self, parent):
+        """Creates the scrollable sidebar container (canvas + scrollbar + inner frame)."""
         t = self._t()
         sb_outer = self._reg(tk.Frame(parent, bg=t.sidebar_bg, width=265),
                              bg="sidebar_bg")
@@ -245,8 +263,8 @@ class StockVizApp:
         cv.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
 
-        # ── Mouse-wheel scrolling (Windows + Linux) ───────────────────────────
-        def _on_mousewheel(event):
+        # Mouse-wheel scrolling (Windows + Linux) 
+        def _on_mousewheel(event): 
             cv.yview_scroll(int(-1 * (event.delta / 120)), "units")
 
         def _on_mousewheel_linux(event):
@@ -259,9 +277,10 @@ class StockVizApp:
         self._build_sidebar_content(self.sb_inner)
 
     def _build_sidebar_content(self, sb):
+        """Builds all sidebar controls: ticker entry, quick-access presets, watchlist, timeframe, chart type, indicators, and action buttons."""
         t = self._t()
 
-        # ── TICKER ───────────────────────────────────────────────────────────
+        # TICKER 
         self._section_header(sb, "🔍  TICKER SYMBOL")
 
         ticker_card = self._reg(
@@ -298,17 +317,17 @@ class StockVizApp:
             bg="card_bg", fg="subtext",
         ).pack(anchor="w", pady=(3, 0))
 
-        # ── FETCH button right below entry ────────────────────────────────────
+        # FETCH button right below entry 
         self.fetch_btn = self._make_btn(
             sb, "⚡   Fetch Data", self.fetch_data,
             bg_attr="accent", fg="#000000",
         )
         self.fetch_btn.pack(fill="x", padx=14, pady=(6, 2))
 
-        # ── Divider ──────────────────────────────────────────────────────────
+        # Divider 
         self._reg(tk.Frame(sb, height=1), bg="border").pack(fill="x", padx=14, pady=10)
 
-        # ── QUICK ACCESS presets ──────────────────────────────────────────────
+        # QUICK ACCESS presets 
         self._section_header(sb, "⚡  QUICK ACCESS")
         presets_frame = self._reg(tk.Frame(sb, bg=t.sidebar_bg), bg="sidebar_bg")
         presets_frame.pack(fill="x", padx=14, pady=(0, 6))
@@ -328,19 +347,19 @@ class StockVizApp:
             self._preset_btns[sym] = btn
             self._style_quick_btn(btn, active=False)
 
-        # ── Divider ──────────────────────────────────────────────────────────
+        # Divider 
         self._reg(tk.Frame(sb, height=1), bg="border").pack(fill="x", padx=14, pady=10)
 
-        # ── WATCHLIST ─────────────────────────────────────────────────────────
+        # WATCHLIST 
         self._section_header(sb, "📋  WATCHLIST")
         self._wl_container = self._reg(tk.Frame(sb, bg=t.sidebar_bg), bg="sidebar_bg")
         self._wl_container.pack(fill="x", padx=14, pady=(0, 10))
         self._rebuild_watchlist_ui()
 
-        # ── Divider ──────────────────────────────────────────────────────────
+        # Divider 
         self._reg(tk.Frame(sb, height=1), bg="border").pack(fill="x", padx=14, pady=10)
 
-        # ── TIMEFRAME ────────────────────────────────────────────────────────
+        # TIMEFRAME 
         self._section_header(sb, "📅  TIMEFRAME")
         self.tf_combo = ttk.Combobox(
             sb, textvariable=self.timeframe_var,
@@ -349,7 +368,7 @@ class StockVizApp:
         )
         self.tf_combo.pack(fill="x", padx=14, pady=(0, 10))
 
-        # ── CHART TYPE ───────────────────────────────────────────────────────
+        # CHART TYPE 
         self._section_header(sb, "📊  CHART TYPE")
         ct_frame = self._reg(tk.Frame(sb, bg=t.sidebar_bg), bg="sidebar_bg")
         ct_frame.pack(fill="x", padx=14, pady=(0, 10))
@@ -357,7 +376,7 @@ class StockVizApp:
             ttk.Radiobutton(ct_frame, text=f"  {ct}",
                             variable=self.chart_type_var, value=ct).pack(anchor="w", pady=3)
 
-        # ── INDICATORS ───────────────────────────────────────────────────────
+        # INDICATORS 
         self._section_header(sb, "🧮  INDICATORS")
         ind_frame = self._reg(tk.Frame(sb, bg=t.sidebar_bg), bg="sidebar_bg")
         ind_frame.pack(fill="x", padx=14, pady=(0, 4))
@@ -382,10 +401,10 @@ class StockVizApp:
                            font=("Segoe UI", 8)),
                   bg="sidebar_bg", fg="subtext").pack(side="left", padx=(4, 0))
 
-        # ── Divider ──────────────────────────────────────────────────────────
+        # Divider 
         self._reg(tk.Frame(sb, height=1), bg="border").pack(fill="x", padx=14, pady=10)
 
-        # ── ACTIONS ──────────────────────────────────────────────────────────
+        # ACTIONS 
         self._section_header(sb, "⚙️  ACTIONS")
 
         self.refresh_btn = self._make_btn(
@@ -398,7 +417,7 @@ class StockVizApp:
                        bg_attr="card_bg", fg_attr="text",
                        ).pack(fill="x", padx=14, pady=(0, 6))
 
-        # ── Tips ─────────────────────────────────────────────────────────────
+        # Tips 
         self._reg(tk.Frame(sb, height=1), bg="border").pack(fill="x", padx=14, pady=10)
         tips_card = self._reg(tk.Frame(sb, padx=10, pady=8), bg="card_bg")
         tips_card.pack(fill="x", padx=14, pady=(0, 14))
@@ -414,10 +433,10 @@ class StockVizApp:
                                font=("Segoe UI", 8), justify="left"),
                       bg="card_bg", fg="subtext").pack(anchor="w", pady=2)
 
-    # ── Preset / Watchlist helpers ────────────────────────────────────────────
+    # Preset / Watchlist helpers 
 
     def _style_quick_btn(self, btn, active: bool):
-        """Apply active or inactive style to a preset/watchlist button."""
+        """Styles a preset/watchlist button as active (accent fill) or inactive (card background)."""
         t = self._t()
         if active:
             btn.config(bg=t.accent, fg="#000000",
@@ -427,7 +446,7 @@ class StockVizApp:
                        activebackground=t.border, activeforeground=t.accent)
 
     def _set_active_btn(self, btn):
-        """Highlight *btn* as active and deactivate all others."""
+        """Highlights the selected preset/watchlist button and deactivates the previously active one."""
         if self._active_btn and self._active_btn is not btn:
             try:
                 self._style_quick_btn(self._active_btn, active=False)
@@ -437,16 +456,19 @@ class StockVizApp:
         self._style_quick_btn(btn, active=True)
 
     def _on_preset_click(self, symbol: str, btn):
+        """Handles preset ticker click: sets ticker variable, highlights button, and fetches data."""
         self.ticker_var.set(symbol)
         self._set_active_btn(btn)
         self.fetch_data()
 
     def _on_watchlist_click(self, symbol: str, btn):
+        """Handles watchlist item click: sets ticker variable, highlights button, and fetches data."""
         self.ticker_var.set(symbol)
         self._set_active_btn(btn)
         self.fetch_data()
 
     def _add_to_watchlist(self):
+        """Adds the current ticker in the entry field to the persistent watchlist."""
         ticker = self.ticker_var.get().strip().upper()
         if not ticker:
             return
@@ -459,6 +481,7 @@ class StockVizApp:
         )
 
     def _remove_from_watchlist(self, ticker: str):
+        """Removes the specified ticker from the watchlist and refreshes the watchlist UI."""
         wl_remove(self._watchlist, ticker)
         # If this was the active ticker, clear active btn
         if (self._active_btn is not None and
@@ -467,7 +490,7 @@ class StockVizApp:
         self._rebuild_watchlist_ui()
 
     def _rebuild_watchlist_ui(self):
-        """Destroy and rebuild the watchlist button list."""
+        """Rebuilds the watchlist button list from scratch after an add or remove operation."""
         if not hasattr(self, "_wl_container") or self._wl_container is None:
             return
         t = self._t()
@@ -517,6 +540,7 @@ class StockVizApp:
     # ── Main Area ─────────────────────────────────────────────────────────────
 
     def _build_main(self, parent):
+        """Builds the main area: statistics bar (price/change) and chart display frame."""
         t = self._t()
         main = self._reg(tk.Frame(parent), bg="bg")
         main.pack(side="left", fill="both", expand=True)
@@ -566,9 +590,10 @@ class StockVizApp:
 
         self._show_placeholder()
 
-    # ── Status Bar ───────────────────────────────────────────────────────────
+    # ── Status Bar ────────────────────────────────────────────────────────────
 
     def _build_statusbar(self):
+        """Builds the bottom status bar containing status messages and loading indicator."""
         t = self._t()
         sb = self._reg(tk.Frame(self.root, height=30), bg="header_bg")
         sb.pack(fill="x", side="bottom")
@@ -593,9 +618,10 @@ class StockVizApp:
         )
         self.loading_lbl.pack(side="right", padx=14)
 
-    # ── Widget Helpers ────────────────────────────────────────────────────────
+    # ── Sidebar Helpers ───────────────────────────────────────────────────────
 
     def _section_header(self, parent, text):
+        """Creates a styled section title label in the sidebar."""
         t = self._t()
         lbl = self._reg(
             tk.Label(parent, text=text, font=("Segoe UI", 9, "bold")),
@@ -603,7 +629,7 @@ class StockVizApp:
         )
         lbl.pack(anchor="w", padx=14, pady=(14, 4))
 
-    def _make_btn(self, parent, text, cmd,
+    def _make_btn(self, parent, text, cmd,  # creates styled button with hover effects
                   bg_attr="card_bg", fg_attr=None, fg="#000000"):
         t = self._t()
         bg = getattr(t, bg_attr)
@@ -623,7 +649,10 @@ class StockVizApp:
         self._reg(btn, **reg_opts)
         return btn
 
+    # ── Display Helpers ───────────────────────────────────────────────────────
+
     def _show_placeholder(self):
+        """Shows a default placeholder message in the chart frame when no data is loaded."""
         for w in self.chart_frame.winfo_children():
             w.destroy()
         t = self._t()
@@ -640,6 +669,7 @@ class StockVizApp:
                  font=("Segoe UI", 11), justify="center").pack()
 
     def _start_clock(self):
+        """Updates the live clock label every second using root.after recursion."""
         try:
             now = datetime.datetime.now().strftime("%a, %d %b %Y   %H:%M:%S")
             self.clock_lbl.config(text=now)
@@ -648,6 +678,7 @@ class StockVizApp:
             pass
 
     def _set_status(self, msg, color=None):
+        """Updates the status bar message and dot indicator color."""
         t = self._t()
         c = color or t.subtext
         try:
@@ -657,6 +688,7 @@ class StockVizApp:
             pass
 
     def _set_loading(self, loading: bool):
+        """Toggles loading state: disables the fetch button and shows a spinner, or restores it."""
         t = self._t()
         self.is_loading = loading
         if loading:
@@ -666,14 +698,16 @@ class StockVizApp:
             self.loading_lbl.config(text="")
             self.fetch_btn.config(state="normal", text="⚡   Fetch Data", bg=t.accent)
 
+    # ── Indicator Handling ────────────────────────────────────────────────────
+
     def _on_indicator_change(self):
-        """Called whenever a checkbox or chart-type radio is toggled."""
+        """Re-renders the chart when any indicator checkbox or chart type radio button is toggled."""
         if self.current_df is not None and self.current_ticker and not self.is_loading:
             self._validate_indicators(self.current_df)
             self._render_chart(self.current_df, self.current_ticker)
 
     def _validate_indicators(self, df):
-        """Warn the user if there's not enough data for a selected indicator."""
+        """Checks if enough data points exist for each selected indicator and warns the user if not."""
         t = self._t()
         warnings = []
         n = len(df)
@@ -690,14 +724,16 @@ class StockVizApp:
         if warnings:
             self._set_status("⚠  " + "   |   ".join(warnings), t.accent2)
 
-    # ── Fetch & Render ────────────────────────────────────────────────────────
+    # ── Data Fetching for UI Update ───────────────────────────────────────────
 
     def fetch_data(self):
+        """Starts a background thread to fetch stock data (prevents UI freeze)."""
         if self.is_loading:
             return
         run_in_thread(self._fetch_worker)
 
     def _fetch_worker(self):
+        """Background worker: fetches stock data and metadata, then schedules a UI update on the main thread."""
         ticker = self.ticker_var.get().strip().upper()
         if not ticker:
             self.root.after(0, lambda: self._set_status(
@@ -721,6 +757,7 @@ class StockVizApp:
             self.root.after(0, lambda: self._set_loading(False))
 
     def _update_ui(self, df, ticker, info):
+        """Updates stat labels (name, price, change), triggers chart rendering, and clears loading state."""
         t = self._t()
         self.name_lbl.config(text=info.get("name", ticker))
         self.ticker_badge.config(text=f" {ticker} ", bg=t.accent, fg="#000000")
@@ -747,18 +784,20 @@ class StockVizApp:
         )
         self._set_loading(False)
 
+    # ── Chart Rendering ───────────────────────────────────────────────────────
+
     def _toolbar_bg(self) -> str:
         """
-        Pick a toolbar strip background that keeps the dark bitmap icons
-        visible in both themes.
-          dark  mode → slightly lighter than card_bg so icons pop
-          light mode → sidebar_bg (neutral light grey)
+        Returns the proper toolbar background color for the current theme.
+
+        dark  mode → slightly lighter than card_bg so icons pop
+        light mode → sidebar_bg (neutral light grey)
         """
         t = self._t()
         return "#2e2e52" if ThemeManager.is_dark() else t.sidebar_bg
 
     def _update_toolbar_theme(self):
-        """Re-colour the matplotlib toolbar strip in-place (no chart re-render)."""
+        """Updates toolbar colors in-place to match the current theme without re-rendering the chart."""
         bg = self._toolbar_bg()
         t  = self._t()
         if hasattr(self, "_toolbar_frame") and self._toolbar_frame:
@@ -780,6 +819,7 @@ class StockVizApp:
                     pass
 
     def _render_chart(self, df, ticker):
+        """Builds and displays the chart (line or candle) inside the chart frame using FigureCanvasTkAgg."""
         for w in self.chart_frame.winfo_children():
             w.destroy()
         self._toolbar       = None
@@ -795,7 +835,8 @@ class StockVizApp:
                    else build_candle_figure(df, indicators, show_rsi, ticker))
             self.current_fig = fig
 
-            # ── Toolbar strip ───────────────────────────────────────────────
+            # Toolbar strip 
+
             tbar_bg = self._toolbar_bg()
             t = self._t()
 
@@ -821,9 +862,10 @@ class StockVizApp:
         except Exception as exc:
             self._set_status(f"❌  Chart error: {exc}", self._t().error)
 
-    # ── Auto-refresh ──────────────────────────────────────────────────────────
+    # ── Auto Refresh ──────────────────────────────────────────────────────────
 
     def toggle_auto_refresh(self):
+        """Turns auto-refresh on or off and updates the button label accordingly."""
         t = self._t()
         if self.auto_refresh_id is not None:
             self.root.after_cancel(self.auto_refresh_id)
@@ -841,15 +883,18 @@ class StockVizApp:
             )
 
     def _schedule_refresh(self):
+        """Schedules the next auto-refresh tick using root.after (non-blocking timer)."""
         self.auto_refresh_id = self.root.after(REFRESH_INTERVAL_MS, self._auto_tick)
 
     def _auto_tick(self):
+        """Triggers a periodic data fetch and schedules the next auto-refresh cycle."""
         self.fetch_data()
         self._schedule_refresh()
 
-    # ── Save chart ────────────────────────────────────────────────────────────
+    # ── Save Feature ──────────────────────────────────────────────────────────
 
     def save_chart(self):
+        """Saves the current chart figure as a PNG, PDF, or SVG file via a file dialog."""
         if self.current_fig is None:
             messagebox.showwarning("No Chart", "Please fetch data before saving.")
             return

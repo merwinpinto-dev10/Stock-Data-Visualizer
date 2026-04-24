@@ -1,57 +1,16 @@
-"""
-utils/theme.py
-==============
-User-defined theme module for StockViz Pro.
-
-HOW TO USE
-----------
-- Switch theme at runtime:   ThemeManager.toggle()
-- Get current theme:         ThemeManager.current()   → Theme object
-- Set a specific theme:      ThemeManager.set("light")
-- Add your own theme:        ThemeManager.register(my_theme)
-
-HOW TO ADD A CUSTOM THEME
---------------------------
-from utils.theme import Theme, ThemeManager
-
-MY_THEME = Theme(
-    name       = "ocean",
-    bg         = "#0a1628",
-    header_bg  = "#061020",
-    sidebar_bg = "#0d1f3c",
-    card_bg    = "#122444",
-    chart_bg   = "#0a1628",
-    border     = "#1e3a5f",
-    text       = "#cce4ff",
-    subtext    = "#5588aa",
-    section_fg = "#44aaff",
-    accent     = "#00aaff",
-    accent2    = "#ff4444",
-    btn_hover  = "#0088dd",
-    success    = "#00ccaa",
-    error      = "#ff4444",
-    ind_sma20  = "#ffcc66",
-    ind_sma50  = "#ffffaa",
-    ind_ema20  = "#ff8888",
-    ind_bb     = "#88ddff",
-)
-
-ThemeManager.register(MY_THEME)
-ThemeManager.set("ocean")
-"""
 
 from dataclasses import dataclass
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+
 #  Theme Data Class
-# ─────────────────────────────────────────────────────────────────────────────
+
 
 @dataclass(frozen=True)
 class Theme:
     name: str
 
-    # ── Window / Layout ───────────────────────────────────────────────────────
+    # Window / Layout 
     bg:         str   # root window background
     header_bg:  str   # top header bar
     sidebar_bg: str   # left sidebar
@@ -59,27 +18,27 @@ class Theme:
     chart_bg:   str   # matplotlib figure background
     border:     str   # divider / highlight border
 
-    # ── Typography ────────────────────────────────────────────────────────────
+    #  Typography 
     text:       str   # primary text
     subtext:    str   # secondary / hint text
     section_fg: str   # sidebar section header labels
 
-    # ── Accent Colours ────────────────────────────────────────────────────────
+    #  Accent Colours 
     accent:     str   # bullish / primary action (green / blue)
     accent2:    str   # bearish / danger (red)
     btn_hover:  str   # button hover state
 
-    # ── Status Colours ────────────────────────────────────────────────────────
+    #  Status Colours 
     success:    str
     error:      str
 
-    # ── Chart Indicator Colours ───────────────────────────────────────────────
+    #  Chart Indicator Colours 
     ind_sma20:  str
     ind_sma50:  str
     ind_ema20:  str
     ind_bb:     str   # Bollinger Bands
 
-    # ── Convenience props ─────────────────────────────────────────────────────
+    #  Convenience props 
     @property
     def ind_colors(self) -> dict:
         return {
@@ -90,9 +49,7 @@ class Theme:
         }
 
 
-# ─────────────────────────────────────────────────────────────────────────────
-#  Built-in Themes
-# ─────────────────────────────────────────────────────────────────────────────
+# Built-in Themes
 
 DARK = Theme(
     name       = "dark",
@@ -139,9 +96,9 @@ LIGHT = Theme(
 )
 
 
-# ─────────────────────────────────────────────────────────────────────────────
+
 #  ThemeManager  (singleton-style, no instantiation needed)
-# ─────────────────────────────────────────────────────────────────────────────
+# 
 
 class ThemeManager:
     """
@@ -160,7 +117,7 @@ class ThemeManager:
     _active:   str  = "dark"
     _registry: dict = {"dark": DARK, "light": LIGHT}
 
-    # ── Public API ────────────────────────────────────────────────────────────
+    #  Public API 
 
     @classmethod
     def current(cls) -> Theme:

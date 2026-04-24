@@ -1,16 +1,12 @@
-# ─────────────────────────────────────────────
 #  StockViz Pro — App Configuration
-#
-#  Colours are NO longer defined here.
 #  All colour tokens live in utils/theme.py
 #  and are accessed via ThemeManager.current()
-# ─────────────────────────────────────────────
 
 APP_TITLE           = "StockViz Pro"
 DEFAULT_TICKER      = "AAPL"
 REFRESH_INTERVAL_MS = 60_000   # ms between auto-refresh ticks
 
-# ── Timeframes ────────────────────────────────
+#  Timeframes 
 TIMEFRAMES = {
     "1 Day":    {"period": "1d",  "interval": "5m"},
     "1 Week":   {"period": "5d",  "interval": "30m"},

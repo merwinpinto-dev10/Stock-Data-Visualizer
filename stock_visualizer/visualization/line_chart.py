@@ -47,7 +47,7 @@ def build_line_figure(df: pd.DataFrame, indicators: list,
     ax.fill_between(df.index, df["Close"], df["Close"].min(),
                     alpha=0.08, color=t.accent)
 
-    # ── Overlays ──────────────────────────────────────────────────────────────
+    #  Overlays 
     c = t.ind_colors
 
     if "SMA 20" in indicators:
@@ -76,7 +76,7 @@ def build_line_figure(df: pd.DataFrame, indicators: list,
     ax.legend(loc="upper left", facecolor=t.chart_bg,
               edgecolor=t.border, labelcolor=t.text, fontsize=8)
 
-    # ── RSI panel ─────────────────────────────────────────────────────────────
+    #  RSI panel  
     if show_rsi:
         rsi = compute_rsi(df)
         ax2 = axes[1]

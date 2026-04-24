@@ -1,18 +1,4 @@
-"""
-utils/watchlist.py
-==================
-Persistent watchlist manager for StockViz Pro.
 
-Watchlist is saved to / loaded from  watchlist.json  in the project root.
-
-Usage
------
-from utils.watchlist import load_watchlist, save_watchlist, wl_add, wl_remove
-
-symbols = load_watchlist()           # ['MSFT', 'AAPL', 'GOOGL']
-wl_add(symbols, 'TSLA')             # adds if not already present
-wl_remove(symbols, 'AAPL')          # removes and saves
-"""
 
 import json
 import os
