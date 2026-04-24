@@ -20,6 +20,7 @@ from data.fetch_data import fetch_stock_data, get_ticker_info
 from visualization.line_chart import build_line_figure
 from visualization.candle_chart import build_candle_figure
 from utils.helpers import run_in_thread, format_currency
+from utils.watchlist import load_watchlist, wl_add, wl_remove
 
 
 class StockVizApp:
@@ -38,6 +39,9 @@ class StockVizApp:
         self.auto_refresh_id = None
         self.clock_after_id  = None
         self.is_loading      = False
+        self._active_btn    = None   # currently highlighted preset/watchlist btn
+        self._watchlist     = load_watchlist()
+        self._wl_frame      = None   # container rebuilt on each add/remove
 
         # ── Tkinter Variables ────────────────────────────────────────────────
         self.ticker_var       = tk.StringVar(value=DEFAULT_TICKER)
@@ -213,18 +217,41 @@ class StockVizApp:
         sb_outer.pack(side="left", fill="y")
         sb_outer.pack_propagate(False)
 
-        cv = self._reg(tk.Canvas(sb_outer, bg=t.sidebar_bg,
-                                 highlightthickness=0, bd=0), bg="sidebar_bg")
+        self._sb_canvas = self._reg(
+            tk.Canvas(sb_outer, bg=t.sidebar_bg, highlightthickness=0, bd=0),
+            bg="sidebar_bg",
+        )
+        cv = self._sb_canvas
         scrollbar = ttk.Scrollbar(sb_outer, orient="vertical", command=cv.yview)
         self.sb_inner = self._reg(tk.Frame(cv, bg=t.sidebar_bg), bg="sidebar_bg")
 
-        self.sb_inner.bind("<Configure>",
-            lambda e: cv.configure(scrollregion=cv.bbox("all")))
-        cv.create_window((0, 0), window=self.sb_inner, anchor="nw")
+        # Update scroll region whenever inner frame resizes
+        self.sb_inner.bind(
+            "<Configure>",
+            lambda e: cv.configure(scrollregion=cv.bbox("all")),
+        )
+        # Keep inner frame width = canvas width (prevents horizontal gap)
+        cv.bind(
+            "<Configure>",
+            lambda e: cv.itemconfig(self._sb_win_id, width=e.width),
+        )
+
+        self._sb_win_id = cv.create_window((0, 0), window=self.sb_inner, anchor="nw")
         cv.configure(yscrollcommand=scrollbar.set)
 
         cv.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
+
+        # ── Mouse-wheel scrolling (Windows + Linux) ───────────────────────────
+        def _on_mousewheel(event):
+            cv.yview_scroll(int(-1 * (event.delta / 120)), "units")
+
+        def _on_mousewheel_linux(event):
+            cv.yview_scroll(-1 if event.num == 4 else 1, "units")
+
+        cv.bind_all("<MouseWheel>",   _on_mousewheel)        # Windows / macOS
+        cv.bind_all("<Button-4>",     _on_mousewheel_linux)  # Linux scroll up
+        cv.bind_all("<Button-5>",     _on_mousewheel_linux)  # Linux scroll down
 
         self._build_sidebar_content(self.sb_inner)
 
@@ -241,19 +268,74 @@ class StockVizApp:
         )
         ticker_card.pack(fill="x", padx=14, pady=(0, 4))
 
+        # Entry + "+" watchlist add button side by side
+        entry_row = self._reg(tk.Frame(ticker_card, bg=t.card_bg), bg="card_bg")
+        entry_row.pack(fill="x")
+
         self.ticker_entry = self._reg(
-            tk.Entry(ticker_card, textvariable=self.ticker_var,
-                     font=("Segoe UI", 16, "bold"), relief="flat", width=10),
+            tk.Entry(entry_row, textvariable=self.ticker_var,
+                     font=("Segoe UI", 16, "bold"), relief="flat", width=8),
             bg="card_bg", fg="accent", insertbackground="accent",
         )
-        self.ticker_entry.pack(fill="x")
+        self.ticker_entry.pack(side="left", fill="x", expand=True)
         self.ticker_entry.bind("<Return>", lambda _: self.fetch_data())
 
+        add_btn = tk.Button(
+            entry_row, text="＋", command=self._add_to_watchlist,
+            bg=t.accent, fg="#000000", font=("Segoe UI", 12, "bold"),
+            relief="flat", cursor="hand2", padx=8, pady=2,
+            activebackground=t.btn_hover, activeforeground="#000000",
+        )
+        add_btn.pack(side="right", padx=(6, 0))
+        self._reg(add_btn, bg="accent")
+
         self._reg(
-            tk.Label(ticker_card, text="Press Enter or click Fetch",
+            tk.Label(ticker_card, text="Press Enter or ＋ to add to watchlist",
                      font=("Segoe UI", 8)),
             bg="card_bg", fg="subtext",
-        ).pack(anchor="w", pady=(2, 0))
+        ).pack(anchor="w", pady=(3, 0))
+
+        # ── FETCH button right below entry ────────────────────────────────────
+        self.fetch_btn = self._make_btn(
+            sb, "⚡   Fetch Data", self.fetch_data,
+            bg_attr="accent", fg="#000000",
+        )
+        self.fetch_btn.pack(fill="x", padx=14, pady=(6, 2))
+
+        # ── Divider ──────────────────────────────────────────────────────────
+        self._reg(tk.Frame(sb, height=1), bg="border").pack(fill="x", padx=14, pady=10)
+
+        # ── QUICK ACCESS presets ──────────────────────────────────────────────
+        self._section_header(sb, "⚡  QUICK ACCESS")
+        presets_frame = self._reg(tk.Frame(sb, bg=t.sidebar_bg), bg="sidebar_bg")
+        presets_frame.pack(fill="x", padx=14, pady=(0, 6))
+
+        self._preset_btns = {}
+        PRESETS = ["MSFT", "AAPL", "GOOGL", "TSLA", "AMZN", "NVDA"]
+        for i, sym in enumerate(PRESETS):
+            btn = tk.Button(
+                presets_frame, text=sym,
+                font=("Segoe UI", 8, "bold"),
+                relief="flat", cursor="hand2",
+                padx=6, pady=5,
+            )
+            btn.config(command=lambda s=sym, b=btn: self._on_preset_click(s, b))
+            btn.grid(row=i // 3, column=i % 3, padx=3, pady=3, sticky="ew")
+            presets_frame.columnconfigure(i % 3, weight=1)
+            self._preset_btns[sym] = btn
+            self._style_quick_btn(btn, active=False)
+
+        # ── Divider ──────────────────────────────────────────────────────────
+        self._reg(tk.Frame(sb, height=1), bg="border").pack(fill="x", padx=14, pady=10)
+
+        # ── WATCHLIST ─────────────────────────────────────────────────────────
+        self._section_header(sb, "📋  WATCHLIST")
+        self._wl_container = self._reg(tk.Frame(sb, bg=t.sidebar_bg), bg="sidebar_bg")
+        self._wl_container.pack(fill="x", padx=14, pady=(0, 10))
+        self._rebuild_watchlist_ui()
+
+        # ── Divider ──────────────────────────────────────────────────────────
+        self._reg(tk.Frame(sb, height=1), bg="border").pack(fill="x", padx=14, pady=10)
 
         # ── TIMEFRAME ────────────────────────────────────────────────────────
         self._section_header(sb, "📅  TIMEFRAME")
@@ -298,16 +380,10 @@ class StockVizApp:
                   bg="sidebar_bg", fg="subtext").pack(side="left", padx=(4, 0))
 
         # ── Divider ──────────────────────────────────────────────────────────
-        self._reg(tk.Frame(sb, height=1), bg="border").pack(fill="x", padx=14, pady=14)
+        self._reg(tk.Frame(sb, height=1), bg="border").pack(fill="x", padx=14, pady=10)
 
         # ── ACTIONS ──────────────────────────────────────────────────────────
         self._section_header(sb, "⚙️  ACTIONS")
-
-        self.fetch_btn = self._make_btn(
-            sb, "⚡   Fetch Data", self.fetch_data,
-            bg_attr="accent", fg="#000000",
-        )
-        self.fetch_btn.pack(fill="x", padx=14, pady=(0, 6))
 
         self.refresh_btn = self._make_btn(
             sb, "🔄   Auto Refresh: OFF", self.toggle_auto_refresh,
@@ -334,6 +410,106 @@ class StockVizApp:
             self._reg(tk.Label(tips_card, text=f"• {tip}",
                                font=("Segoe UI", 8), justify="left"),
                       bg="card_bg", fg="subtext").pack(anchor="w", pady=2)
+
+    # ── Preset / Watchlist helpers ────────────────────────────────────────────
+
+    def _style_quick_btn(self, btn, active: bool):
+        """Apply active or inactive style to a preset/watchlist button."""
+        t = self._t()
+        if active:
+            btn.config(bg=t.accent, fg="#000000",
+                       activebackground=t.btn_hover, activeforeground="#000000")
+        else:
+            btn.config(bg=t.card_bg, fg=t.accent,
+                       activebackground=t.border, activeforeground=t.accent)
+
+    def _set_active_btn(self, btn):
+        """Highlight *btn* as active and deactivate all others."""
+        if self._active_btn and self._active_btn is not btn:
+            try:
+                self._style_quick_btn(self._active_btn, active=False)
+            except tk.TclError:
+                pass
+        self._active_btn = btn
+        self._style_quick_btn(btn, active=True)
+
+    def _on_preset_click(self, symbol: str, btn):
+        self.ticker_var.set(symbol)
+        self._set_active_btn(btn)
+        self.fetch_data()
+
+    def _on_watchlist_click(self, symbol: str, btn):
+        self.ticker_var.set(symbol)
+        self._set_active_btn(btn)
+        self.fetch_data()
+
+    def _add_to_watchlist(self):
+        ticker = self.ticker_var.get().strip().upper()
+        if not ticker:
+            return
+        added = wl_add(self._watchlist, ticker)
+        if added:
+            self._rebuild_watchlist_ui()
+        self._set_status(
+            f"✔  '{ticker}' added to watchlist" if added
+            else f"ℹ  '{ticker}' is already in watchlist"
+        )
+
+    def _remove_from_watchlist(self, ticker: str):
+        wl_remove(self._watchlist, ticker)
+        # If this was the active ticker, clear active btn
+        if (self._active_btn is not None and
+                getattr(self._active_btn, "_wl_ticker", None) == ticker):
+            self._active_btn = None
+        self._rebuild_watchlist_ui()
+
+    def _rebuild_watchlist_ui(self):
+        """Destroy and rebuild the watchlist button list."""
+        if not hasattr(self, "_wl_container") or self._wl_container is None:
+            return
+        t = self._t()
+        for w in self._wl_container.winfo_children():
+            w.destroy()
+
+        if not self._watchlist:
+            tk.Label(self._wl_container, text="No items yet — press ＋",
+                     bg=t.sidebar_bg, fg=t.subtext,
+                     font=("Segoe UI", 8)).pack(anchor="w", pady=4)
+            return
+
+        for sym in self._watchlist:
+            row = tk.Frame(self._wl_container, bg=t.sidebar_bg)
+            row.pack(fill="x", pady=2)
+
+            btn = tk.Button(
+                row, text=sym,
+                font=("Segoe UI", 9, "bold"),
+                relief="flat", cursor="hand2",
+                padx=8, pady=5, anchor="w",
+            )
+            # Tag button so we can identify it later
+            btn._wl_ticker = sym
+            btn.config(command=lambda s=sym, b=btn: self._on_watchlist_click(s, b))
+            self._style_quick_btn(btn, active=False)
+            btn.pack(side="left", fill="x", expand=True)
+
+            # Hover effects
+            btn.bind("<Enter>", lambda e, b=btn: b.config(bg=t.border))
+            btn.bind("<Leave>",
+                     lambda e, b=btn: self._style_quick_btn(
+                         b, active=(b is self._active_btn)))
+
+            # × remove button
+            rm = tk.Button(
+                row, text="×",
+                font=("Segoe UI", 10, "bold"),
+                relief="flat", cursor="hand2",
+                padx=6, pady=4,
+                bg=t.sidebar_bg, fg=t.subtext,
+                activebackground=t.accent2, activeforeground="#ffffff",
+                command=lambda s=sym: self._remove_from_watchlist(s),
+            )
+            rm.pack(side="right")
 
     # ── Main Area ─────────────────────────────────────────────────────────────
 
