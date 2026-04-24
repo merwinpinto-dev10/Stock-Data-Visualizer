@@ -56,6 +56,9 @@ class StockVizApp:
         self.show_rsi_var.trace_add("write",   lambda *_: self._on_indicator_change())
         self.chart_type_var.trace_add("write", lambda *_: self._on_indicator_change())
 
+        # Timeframe change → full re-fetch (new data needed, not just re-render)
+        self.timeframe_var.trace_add("write", lambda *_: self.fetch_data())
+
         # ── Widget registry for theme switching ──────────────────────────────
         # Each entry: (widget, {tkinter_option: theme_attribute_name})
         self._tw = []
